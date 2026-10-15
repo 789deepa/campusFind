@@ -109,4 +109,46 @@ class ValidationServiceTest {
                 () -> validationService.validateClaim(claim));
         assertTrue(ex.getMessage().contains("Private verification answer"));
     }
+
+    @Test
+    @DisplayName("Valid lost item passes validation without throwing")
+    void testValidLostItemPasses() {
+        com.campusfind.model.LostItem item = new com.campusfind.model.LostItem("Blue Umbrella", "Accessories",
+                "Navy blue folding umbrella left near canteen", "Food Court",
+                LocalDate.now(), "Vikram Singh", "vikram@campus.edu", "Small scratch on curved handle");
+
+        assertDoesNotThrow(() -> validationService.validateLostItem(item));
+    }
+
+    @Test
+    @DisplayName("Validation fails when lost item is null")
+    void testNullLostItemFails() {
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> validationService.validateLostItem(null));
+        assertTrue(ex.getMessage().contains("Lost item cannot be null"));
+    }
+
+    @Test
+    @DisplayName("Validation fails when lost item date is in future")
+    void testFutureLostDateFails() {
+        com.campusfind.model.LostItem item = new com.campusfind.model.LostItem("Blue Umbrella", "Accessories",
+                "Navy blue folding umbrella", "Food Court",
+                LocalDate.now().plusDays(3), "Vikram", "vikram@campus.edu", "Small scratch");
+
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> validationService.validateLostItem(item));
+        assertTrue(ex.getMessage().contains("cannot be in the future"));
+    }
+
+    @Test
+    @DisplayName("Validation fails when identifying details are missing for lost item")
+    void testMissingIdentifyingDetailsFails() {
+        com.campusfind.model.LostItem item = new com.campusfind.model.LostItem("Blue Umbrella", "Accessories",
+                "Navy blue folding umbrella", "Food Court",
+                LocalDate.now(), "Vikram", "vikram@campus.edu", "   ");
+
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> validationService.validateLostItem(item));
+        assertTrue(ex.getMessage().contains("Identifying details"));
+    }
 }

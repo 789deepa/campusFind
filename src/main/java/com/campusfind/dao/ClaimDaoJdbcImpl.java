@@ -25,23 +25,23 @@ public class ClaimDaoJdbcImpl implements ClaimDao {
     private static final Logger logger = Logger.getLogger(ClaimDaoJdbcImpl.class.getName());
 
     private static final String INSERT_SQL =
-            "INSERT INTO claims (item_id, claimant_name, claimant_contact, claim_description, verification_response, status) " +
-            "VALUES (?, ?, ?, ?, ?, ?)";
+            "INSERT INTO claims (item_id, lost_report_id, claimant_name, claimant_contact, claim_description, verification_response, status) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_BY_ID_SQL =
-            "SELECT id, item_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
+            "SELECT id, item_id, lost_report_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
             "FROM claims WHERE id = ?";
 
     private static final String SELECT_BY_ITEM_ID_SQL =
-            "SELECT id, item_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
+            "SELECT id, item_id, lost_report_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
             "FROM claims WHERE item_id = ? ORDER BY submitted_at DESC";
 
     private static final String SELECT_PENDING_SQL =
-            "SELECT id, item_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
+            "SELECT id, item_id, lost_report_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
             "FROM claims WHERE status = 'PENDING' ORDER BY submitted_at ASC";
 
     private static final String SELECT_ALL_SQL =
-            "SELECT id, item_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
+            "SELECT id, item_id, lost_report_id, claimant_name, claimant_contact, claim_description, verification_response, status, submitted_at, reviewed_at " +
             "FROM claims ORDER BY id DESC";
 
     private static final String CHECK_ACTIVE_CLAIM_SQL =
@@ -56,11 +56,16 @@ public class ClaimDaoJdbcImpl implements ClaimDao {
              PreparedStatement ps = conn.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS)) {
 
             ps.setInt(1, claim.getItemId());
-            ps.setString(2, claim.getClaimantName());
-            ps.setString(3, claim.getClaimantContact());
-            ps.setString(4, claim.getClaimDescription());
-            ps.setString(5, claim.getVerificationResponse());
-            ps.setString(6, claim.getStatus().name());
+            if (claim.getLostReportId() != null) {
+                ps.setInt(2, claim.getLostReportId());
+            } else {
+                ps.setNull(2, Types.INTEGER);
+            }
+            ps.setString(3, claim.getClaimantName());
+            ps.setString(4, claim.getClaimantContact());
+            ps.setString(5, claim.getClaimDescription());
+            ps.setString(6, claim.getVerificationResponse());
+            ps.setString(7, claim.getStatus().name());
 
             int affectedRows = ps.executeUpdate();
             if (affectedRows == 0) {
@@ -184,7 +189,31 @@ public class ClaimDaoJdbcImpl implements ClaimDao {
                 }
             }
 
-            // 3. Automatically reject competing pending claims for the same item
+            // 3. If claim is linked to a lost report, update lost item status to MATCHED
+            Integer associatedLostReportId = null;
+            String checkLostReportSql = "SELECT lost_report_id FROM claims WHERE id = ?";
+            try (PreparedStatement psCheck = conn.prepareStatement(checkLostReportSql)) {
+                psCheck.setInt(1, claimId);
+                try (ResultSet rs = psCheck.executeQuery()) {
+                    if (rs.next()) {
+                        int lrId = rs.getInt("lost_report_id");
+                        if (!rs.wasNull()) {
+                            associatedLostReportId = lrId;
+                        }
+                    }
+                }
+            }
+
+            if (associatedLostReportId != null) {
+                String updateLostItemSql = "UPDATE lost_items SET status = 'MATCHED' WHERE id = ?";
+                try (PreparedStatement psLost = conn.prepareStatement(updateLostItemSql)) {
+                    psLost.setInt(1, associatedLostReportId);
+                    psLost.executeUpdate();
+                    logger.info("Associated lost item #" + associatedLostReportId + " transitioned to MATCHED in transaction.");
+                }
+            }
+
+            // 4. Automatically reject competing pending claims for the same item
             try (PreparedStatement psReject = conn.prepareStatement(rejectOtherClaimsSql)) {
                 psReject.setInt(1, itemId);
                 psReject.setInt(2, claimId);
@@ -246,6 +275,10 @@ public class ClaimDaoJdbcImpl implements ClaimDao {
     private Claim mapRow(ResultSet rs) throws SQLException {
         Integer id = rs.getInt("id");
         Integer itemId = rs.getInt("item_id");
+        Integer lostReportId = rs.getInt("lost_report_id");
+        if (rs.wasNull()) {
+            lostReportId = null;
+        }
         String name = rs.getString("claimant_name");
         String contact = rs.getString("claimant_contact");
         String desc = rs.getString("claim_description");
@@ -256,7 +289,7 @@ public class ClaimDaoJdbcImpl implements ClaimDao {
         Timestamp revTs = rs.getTimestamp("reviewed_at");
         LocalDateTime reviewedAt = revTs != null ? revTs.toLocalDateTime() : null;
 
-        return new Claim(id, itemId, name, contact, desc, response, status, submittedAt, reviewedAt);
+        return new Claim(id, itemId, lostReportId, name, contact, desc, response, status, submittedAt, reviewedAt);
     }
 
     @FunctionalInterface

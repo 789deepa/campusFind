@@ -4,6 +4,7 @@ import com.campusfind.dao.ClaimDao;
 import com.campusfind.dao.FoundItemDao;
 import com.campusfind.exception.InvalidStatusTransitionException;
 import com.campusfind.exception.ItemNotFoundException;
+import com.campusfind.model.Claim;
 import com.campusfind.model.ClaimStatus;
 import com.campusfind.model.DashboardStatistics;
 import com.campusfind.model.FoundItem;
@@ -29,11 +30,17 @@ public class ItemService {
 
     private final FoundItemDao foundItemDao;
     private final ClaimDao claimDao;
+    private final com.campusfind.dao.LostItemDao lostItemDao;
     private final ValidationService validationService;
 
     public ItemService(FoundItemDao foundItemDao, ClaimDao claimDao, ValidationService validationService) {
+        this(foundItemDao, claimDao, null, validationService);
+    }
+
+    public ItemService(FoundItemDao foundItemDao, ClaimDao claimDao, com.campusfind.dao.LostItemDao lostItemDao, ValidationService validationService) {
         this.foundItemDao = foundItemDao;
         this.claimDao = claimDao;
+        this.lostItemDao = lostItemDao;
         this.validationService = validationService;
     }
 
@@ -108,10 +115,11 @@ public class ItemService {
         }
 
         // Enforce business rule: An item may be marked RETURNED only after an approved claim
-        boolean hasApprovedClaim = claimDao.findByItemId(itemId).stream()
-                .anyMatch(c -> c.getStatus() == ClaimStatus.APPROVED);
+        Optional<Claim> approvedClaimOpt = claimDao.findByItemId(itemId).stream()
+                .filter(c -> c.getStatus() == ClaimStatus.APPROVED)
+                .findFirst();
 
-        if (!hasApprovedClaim) {
+        if (approvedClaimOpt.isEmpty()) {
             throw new InvalidStatusTransitionException(
                     "Cannot mark item #" + itemId + " as RETURNED. No APPROVED claim was found for this item. " +
                     "A claim must first be verified and approved before marking the physical item as returned."
@@ -121,6 +129,11 @@ public class ItemService {
         boolean updated = foundItemDao.updateStatus(itemId, ItemStatus.RETURNED);
         if (updated) {
             logger.info("Item #" + itemId + " successfully marked as RETURNED.");
+            Claim approvedClaim = approvedClaimOpt.get();
+            if (lostItemDao != null && approvedClaim.getLostReportId() != null) {
+                lostItemDao.updateStatus(approvedClaim.getLostReportId(), com.campusfind.model.LostItemStatus.RESOLVED);
+                logger.info("Associated lost item #" + approvedClaim.getLostReportId() + " marked as RESOLVED.");
+            }
         }
         return updated;
     }

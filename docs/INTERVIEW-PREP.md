@@ -192,12 +192,13 @@ At the database layer, once an item is marked `RETURNED`, it is excluded from pu
 **Answer**: I built in-memory test doubles ([`InMemoryFoundItemDao`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/src/test/java/com/campusfind/testutil/InMemoryFoundItemDao.java) and [`InMemoryClaimDao`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/src/test/java/com/campusfind/testutil/InMemoryClaimDao.java)) implementing the DAO interfaces. This allowed testing all service workflows, validation, duplicate prevention, and state transitions using JUnit 5 without any external dependency.
 
 #### Q28: How many tests did you write, and what do they verify?
-**Answer**: 40 unit tests across 7 test suites covering:
-- Privacy redaction in `FoundItemTest` and `ClaimTest`.
-- Status enum parsing in `ItemStatusTest`.
-- Input validation in `ValidationServiceTest`.
-- Business rules in `ItemServiceTest` (preventing return without approved claim).
-- Transactional flows in `ClaimServiceTest` (auto-rejection of competing claims).
+**Answer**: 73 unit tests across 9 test suites covering:
+- Privacy redaction in `FoundItemTest`, `LostItemTest`, and `ClaimTest`.
+- Status enum parsing in `ItemStatusTest` and `LostItemStatusTest`.
+- Input validation in `ValidationServiceTest` (for found items, lost items, and claims).
+- Business rules in `ItemServiceTest` (preventing return without approved claim, resolving associated lost report).
+- Heuristic matching algorithm and scoring breakdown in `LostItemServiceTest`.
+- Transactional flows and lost report status sync in `ClaimServiceTest` (auto-rejection of competing claims, transitioning linked lost report to `MATCHED`).
 - Date utilities in `DateUtilTest`.
 
 #### Q29: What are the main trade-offs in this architecture?
@@ -220,6 +221,40 @@ At the database layer, once an item is marked `RETURNED`, it is excluded from pu
 
 ---
 
+### Part F: Lost-Item Tracking & Heuristic Matching Engine
+
+#### Q33: How does the lost-item reporting workflow work?
+**Answer**: Students submit a report specifying the item name, category, description, location last seen, date lost, student contact info, and confidential identifying details. The entity defaults to status `OPEN`. Like found items, identifying details are masked as `[REDACTED]` in `toString()` to prevent accidental data leaks in log streams.
+
+#### Q34: How does the heuristic matching engine suggest matches between lost and found items?
+**Answer**: In [`LostItemService.java`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/src/main/java/com/campusfind/service/LostItemService.java), I designed a multi-factor scoring algorithm:
+1. **Category Exact Match (+35 points)**: Same category (e.g. `Electronics`).
+2. **Title & Description Keyword Overlap (+15 to +35 points)**: Tokenizes words (filtering out stop words) and computes the intersection between the lost item text and found item text.
+3. **Location Proximity (+20 points)**: Checks for substring/token overlap in location names (e.g. "Library").
+4. **Chronological Plausibility (+10 points)**: Verifies that `dateFound >= dateLost`. If an item was found *before* it was lost, timeline points are omitted.
+Pairs scoring &ge; 40% are presented to the user with a match score percentage and an explanation breakdown.
+
+#### Q35: Why does the system NOT automatically mark an item as returned or resolved when a high match score is found?
+**Answer**: Because a high heuristic score indicates *plausibility*, not legal ownership. Automated resolution without human verification could hand a high-value laptop to the wrong student just because two students lost similar laptops in the same building. Final resolution must always go through the privacy-conscious verification claim review and physical handover.
+
+#### Q36: How does the claim system integrate with lost-item reports?
+**Answer**: When a student discovers a potential match for their lost item, they can submit a claim for the found item and provide their `lostReportId`. The service validates that the lost report exists and is not already `RESOLVED`. The claim record links to the lost report via an `ON DELETE SET NULL` foreign key.
+
+#### Q37: What happens to the lost report when a claim is approved and when the item is returned?
+**Answer**: The lost report transitions through an irreversible lifecycle:
+1. `OPEN`: Newly reported by the student.
+2. `MATCHED`: Transitioned inside the atomic claim approval transaction when campus staff approves the claim.
+3. `RESOLVED`: Transitioned when campus staff physically hand over the item and mark the found item as `RETURNED`.
+
+#### Q38: How did you handle database migration without deleting existing data?
+**Answer**: I authored `src/main/resources/db/migration_v2_lost_items.sql` using non-destructive DDL:
+- `CREATE TABLE IF NOT EXISTS lost_items (...)`
+- `ALTER TABLE claims ADD COLUMN lost_report_id INT NULL AFTER item_id;`
+- `ALTER TABLE claims ADD CONSTRAINT fk_claims_lost_items FOREIGN KEY (lost_report_id) REFERENCES lost_items(id) ON DELETE SET NULL ON UPDATE CASCADE;`
+This allows existing installations to upgrade immediately without dropping tables or losing any existing records.
+
+---
+
 ## 5. Potential Follow-Up Questions by Interviewers
 
 | Design Decision | Likely Follow-Up | How to Respond |
@@ -227,4 +262,5 @@ At the database layer, once an item is marked `RETURNED`, it is excluded from pu
 | **Manual ConnectionFactory** | *"Why not use a connection pool like HikariCP?"* | *"In this desktop console application, traffic is sequential, so `DriverManager` demonstrates the fundamentals cleanly. In production, I would configure HikariCP to eliminate connection establishment latency."* |
 | **`try-with-resources`** | *"What happens if both the try block and `close()` throw an exception?"* | *"The exception in the try block is thrown, and the exception from `close()` is attached to it as a **suppressed exception**, accessible via `e.getSuppressed()`."* |
 | **Atomic Transaction** | *"What isolation level did you use?"* | *"MySQL defaults to `REPEATABLE READ` under InnoDB. For this application, local transaction demarcation with rollback on error is sufficient to maintain ACID guarantees."* |
+| **Heuristic Matching** | *"Why did you not use AI or an LLM for matching?"* | *"Heuristic rule-based scoring is deterministic, transparent, fast, has zero external API costs, works completely offline, and can be easily explained and unit-tested in an interview."* |
 | **In-Memory DAOs for Testing** | *"Why not use Mockito?"* | *"Mockito is great, but stateful in-memory test doubles provide higher test fidelity because they verify realistic data flow and collection filtering without writing verbose `when(...).thenReturn(...)` chains."* |

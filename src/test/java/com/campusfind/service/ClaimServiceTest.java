@@ -1,15 +1,10 @@
 package com.campusfind.service;
 
-import com.campusfind.exception.ClaimNotFoundException;
-import com.campusfind.exception.DuplicateClaimException;
-import com.campusfind.exception.InvalidStatusTransitionException;
-import com.campusfind.exception.ItemNotFoundException;
-import com.campusfind.model.Claim;
-import com.campusfind.model.ClaimStatus;
-import com.campusfind.model.FoundItem;
-import com.campusfind.model.ItemStatus;
+import com.campusfind.exception.*;
+import com.campusfind.model.*;
 import com.campusfind.testutil.InMemoryClaimDao;
 import com.campusfind.testutil.InMemoryFoundItemDao;
+import com.campusfind.testutil.InMemoryLostItemDao;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +19,7 @@ class ClaimServiceTest {
 
     private InMemoryFoundItemDao itemDao;
     private InMemoryClaimDao claimDao;
+    private InMemoryLostItemDao lostItemDao;
     private ValidationService validationService;
     private ClaimService claimService;
     private FoundItem sampleItem;
@@ -31,9 +27,10 @@ class ClaimServiceTest {
     @BeforeEach
     void setUp() {
         itemDao = new InMemoryFoundItemDao();
-        claimDao = new InMemoryClaimDao(itemDao);
+        lostItemDao = new InMemoryLostItemDao();
+        claimDao = new InMemoryClaimDao(itemDao, lostItemDao);
         validationService = new ValidationService();
-        claimService = new ClaimService(claimDao, itemDao, validationService);
+        claimService = new ClaimService(claimDao, itemDao, lostItemDao, validationService);
 
         sampleItem = new FoundItem("Casio Calculator", "Electronics", "Scientific fx-991EX",
                 "Hall 101", LocalDate.now(), "Prof. Kumar", "Roll number 442 in pencil");
@@ -122,5 +119,56 @@ class ClaimServiceTest {
         assertEquals(ClaimStatus.REJECTED, claimDao.findById(claim.getId()).orElseThrow().getStatus());
         assertEquals(ItemStatus.AVAILABLE, itemDao.findById(sampleItem.getId()).orElseThrow().getStatus(),
                 "Item status should revert to AVAILABLE when no pending claims remain.");
+    }
+
+    @Test
+    @DisplayName("Submitting claim with valid lostReportId succeeds")
+    void testSubmitClaimWithValidLostReportId() {
+        LostItem lost = new LostItem("Casio 991EX", "Electronics", "Lost in 101",
+                "Hall 101", LocalDate.now(), "Kavya", "kavya@campus.edu", "Marks");
+        lostItemDao.save(lost);
+
+        Claim claim = new Claim(sampleItem.getId(), lost.getId(), "Kavya", "kavya@campus.edu", "My calc", "Roll 442");
+        Claim saved = claimService.submitClaim(claim);
+
+        assertNotNull(saved.getId());
+        assertEquals(lost.getId(), saved.getLostReportId());
+    }
+
+    @Test
+    @DisplayName("Submitting claim with non-existent lostReportId throws LostItemNotFoundException")
+    void testSubmitClaimWithNonExistentLostReportIdFails() {
+        Claim claim = new Claim(sampleItem.getId(), 9999, "Kavya", "kavya@campus.edu", "My calc", "Roll 442");
+        assertThrows(LostItemNotFoundException.class, () -> claimService.submitClaim(claim));
+    }
+
+    @Test
+    @DisplayName("Submitting claim with already RESOLVED lostReportId throws InvalidStatusTransitionException")
+    void testSubmitClaimWithResolvedLostReportIdFails() {
+        LostItem lost = new LostItem("Casio 991EX", "Electronics", "Lost in 101",
+                "Hall 101", LocalDate.now(), "Kavya", "kavya@campus.edu", "Marks");
+        lostItemDao.save(lost);
+        lostItemDao.updateStatus(lost.getId(), LostItemStatus.RESOLVED);
+
+        Claim claim = new Claim(sampleItem.getId(), lost.getId(), "Kavya", "kavya@campus.edu", "My calc", "Roll 442");
+        assertThrows(InvalidStatusTransitionException.class, () -> claimService.submitClaim(claim));
+    }
+
+    @Test
+    @DisplayName("Approving a claim associated with a lost report updates lost item status to MATCHED")
+    void testApproveClaimUpdatesAssociatedLostReportToMatched() {
+        LostItem lost = new LostItem("Casio 991EX", "Electronics", "Lost in 101",
+                "Hall 101", LocalDate.now(), "Kavya", "kavya@campus.edu", "Marks");
+        lostItemDao.save(lost);
+
+        Claim claim = claimService.submitClaim(new Claim(sampleItem.getId(), lost.getId(), "Kavya",
+                "kavya@campus.edu", "My calc", "Roll 442"));
+
+        boolean approved = claimService.approveClaim(claim.getId());
+        assertTrue(approved);
+
+        LostItem updatedLost = lostItemDao.findById(lost.getId()).orElseThrow();
+        assertEquals(LostItemStatus.MATCHED, updatedLost.getStatus(),
+                "Associated lost report must transition to MATCHED upon claim approval");
     }
 }

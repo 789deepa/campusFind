@@ -32,11 +32,17 @@ public class ClaimService {
 
     private final ClaimDao claimDao;
     private final FoundItemDao foundItemDao;
+    private final com.campusfind.dao.LostItemDao lostItemDao;
     private final ValidationService validationService;
 
     public ClaimService(ClaimDao claimDao, FoundItemDao foundItemDao, ValidationService validationService) {
+        this(claimDao, foundItemDao, null, validationService);
+    }
+
+    public ClaimService(ClaimDao claimDao, FoundItemDao foundItemDao, com.campusfind.dao.LostItemDao lostItemDao, ValidationService validationService) {
         this.claimDao = claimDao;
         this.foundItemDao = foundItemDao;
+        this.lostItemDao = lostItemDao;
         this.validationService = validationService;
     }
 
@@ -54,6 +60,15 @@ public class ClaimService {
 
         if (item.getStatus() == ItemStatus.RETURNED) {
             throw new InvalidStatusTransitionException("Cannot submit a claim for item #" + item.getId() + " because it has already been returned to its owner.");
+        }
+
+        // Validate associated lost report if specified
+        if (claim.getLostReportId() != null && lostItemDao != null) {
+            com.campusfind.model.LostItem lostItem = lostItemDao.findById(claim.getLostReportId())
+                    .orElseThrow(() -> new com.campusfind.exception.LostItemNotFoundException(claim.getLostReportId()));
+            if (lostItem.getStatus() == com.campusfind.model.LostItemStatus.RESOLVED) {
+                throw new InvalidStatusTransitionException("Cannot link claim to lost-item report #" + lostItem.getId() + " because it has already been marked as RESOLVED.");
+            }
         }
 
         // Prevent multiple pending claims by the same claimant for the same item
@@ -114,6 +129,9 @@ public class ClaimService {
         boolean success = claimDao.approveClaimAtomic(claimId, claim.getItemId());
         if (success) {
             logger.info("Claim #" + claimId + " approved atomically for item #" + claim.getItemId());
+            if (claim.getLostReportId() != null && lostItemDao != null) {
+                lostItemDao.updateStatus(claim.getLostReportId(), com.campusfind.model.LostItemStatus.MATCHED);
+            }
         }
         return success;
     }

@@ -6,8 +6,11 @@ import com.campusfind.dao.ClaimDao;
 import com.campusfind.dao.ClaimDaoJdbcImpl;
 import com.campusfind.dao.FoundItemDao;
 import com.campusfind.dao.FoundItemDaoJdbcImpl;
+import com.campusfind.dao.LostItemDao;
+import com.campusfind.dao.LostItemDaoJdbcImpl;
 import com.campusfind.service.ClaimService;
 import com.campusfind.service.ItemService;
+import com.campusfind.service.LostItemService;
 import com.campusfind.service.ValidationService;
 import com.campusfind.ui.ConsoleMenu;
 import com.campusfind.ui.ConsolePrinter;
@@ -74,14 +77,16 @@ public class Main {
         // 3. Dependency Injection (Manual Constructor Injection)
         FoundItemDao foundItemDao = new FoundItemDaoJdbcImpl();
         ClaimDao claimDao = new ClaimDaoJdbcImpl();
+        LostItemDao lostItemDao = new LostItemDaoJdbcImpl();
         ValidationService validationService = new ValidationService();
 
-        ItemService itemService = new ItemService(foundItemDao, claimDao, validationService);
-        ClaimService claimService = new ClaimService(claimDao, foundItemDao, validationService);
+        ItemService itemService = new ItemService(foundItemDao, claimDao, lostItemDao, validationService);
+        ClaimService claimService = new ClaimService(claimDao, foundItemDao, lostItemDao, validationService);
+        LostItemService lostItemService = new LostItemService(lostItemDao, foundItemDao, validationService);
 
         // 4. Launch Console UI
         try (Scanner scanner = new Scanner(System.in)) {
-            ConsoleMenu menu = new ConsoleMenu(itemService, claimService, scanner);
+            ConsoleMenu menu = new ConsoleMenu(itemService, claimService, lostItemService, scanner);
             menu.run();
         } finally {
             try {

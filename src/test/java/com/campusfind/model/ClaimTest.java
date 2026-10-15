@@ -38,4 +38,14 @@ class ClaimTest {
         Claim claim = new Claim(5, "Ananya", "ananya@campus.edu", "Dropped wallet", "Has student ID 445");
         assertEquals("Has student ID 445", claim.getVerificationResponse());
     }
+
+    @Test
+    @DisplayName("Claim supports optional lostReportId association")
+    void testClaimWithLostReportId() {
+        Claim claim = new Claim(101, 42, "Rohan", "rohan@campus.edu", "Matches my lost watch", "Silver clasp engraving");
+        assertEquals(42, claim.getLostReportId());
+
+        claim.setLostReportId(99);
+        assertEquals(99, claim.getLostReportId());
+    }
 }

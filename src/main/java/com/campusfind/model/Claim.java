@@ -14,6 +14,7 @@ import java.util.Objects;
 public class Claim {
     private Integer id;
     private Integer itemId;
+    private Integer lostReportId;
     private String claimantName;
     private String claimantContact;
     private String claimDescription;
@@ -29,7 +30,13 @@ public class Claim {
 
     public Claim(Integer itemId, String claimantName, String claimantContact,
                  String claimDescription, String verificationResponse) {
+        this(itemId, null, claimantName, claimantContact, claimDescription, verificationResponse);
+    }
+
+    public Claim(Integer itemId, Integer lostReportId, String claimantName, String claimantContact,
+                 String claimDescription, String verificationResponse) {
         this.itemId = itemId;
+        this.lostReportId = lostReportId;
         this.claimantName = claimantName;
         this.claimantContact = claimantContact;
         this.claimDescription = claimDescription;
@@ -41,8 +48,15 @@ public class Claim {
     public Claim(Integer id, Integer itemId, String claimantName, String claimantContact,
                  String claimDescription, String verificationResponse, ClaimStatus status,
                  LocalDateTime submittedAt, LocalDateTime reviewedAt) {
+        this(id, itemId, null, claimantName, claimantContact, claimDescription, verificationResponse, status, submittedAt, reviewedAt);
+    }
+
+    public Claim(Integer id, Integer itemId, Integer lostReportId, String claimantName, String claimantContact,
+                 String claimDescription, String verificationResponse, ClaimStatus status,
+                 LocalDateTime submittedAt, LocalDateTime reviewedAt) {
         this.id = id;
         this.itemId = itemId;
+        this.lostReportId = lostReportId;
         this.claimantName = claimantName;
         this.claimantContact = claimantContact;
         this.claimDescription = claimDescription;
@@ -68,6 +82,14 @@ public class Claim {
 
     public void setItemId(Integer itemId) {
         this.itemId = itemId;
+    }
+
+    public Integer getLostReportId() {
+        return lostReportId;
+    }
+
+    public void setLostReportId(Integer lostReportId) {
+        this.lostReportId = lostReportId;
     }
 
     public String getClaimantName() {
@@ -147,6 +169,7 @@ public class Claim {
         return "Claim{" +
                 "id=" + id +
                 ", itemId=" + itemId +
+                ", lostReportId=" + lostReportId +
                 ", claimantName='" + claimantName + '\'' +
                 ", claimantContact='" + claimantContact + '\'' +
                 ", claimDescription='" + claimDescription + '\'' +

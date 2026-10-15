@@ -38,6 +38,32 @@ public class ValidationService {
     }
 
     /**
+     * Validates a student's lost-item report.
+     *
+     * @param item the lost item to validate
+     * @throws ValidationException if any validation rule is violated
+     */
+    public void validateLostItem(com.campusfind.model.LostItem item) {
+        if (item == null) {
+            throw new ValidationException("Lost item cannot be null.");
+        }
+        validateNonEmpty(item.getItemName(), "Item name", 3, 100);
+        validateNonEmpty(item.getCategory(), "Category", 2, 50);
+        validateNonEmpty(item.getDescription(), "Description", 5, 500);
+        validateNonEmpty(item.getLocationLost(), "Location lost / last seen", 2, 100);
+        validateNonEmpty(item.getStudentName(), "Student name", 2, 100);
+        validateNonEmpty(item.getStudentContact(), "Student contact details", 5, 100);
+        validateNonEmpty(item.getIdentifyingDetails(), "Identifying details / secret marks", 3, 255);
+
+        if (item.getDateLost() == null) {
+            throw new ValidationException("Date lost must be specified.");
+        }
+        if (item.getDateLost().isAfter(LocalDate.now())) {
+            throw new ValidationException("Date lost cannot be in the future (Entered: " + item.getDateLost() + ").");
+        }
+    }
+
+    /**
      * Validates a newly submitted claim.
      *
      * @param claim the claim to validate

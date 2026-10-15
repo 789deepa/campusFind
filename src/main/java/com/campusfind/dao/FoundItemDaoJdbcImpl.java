@@ -185,8 +185,17 @@ public class FoundItemDaoJdbcImpl implements FoundItemDao {
                 "ORDER BY cnt DESC " +
                 "LIMIT 1";
 
+        String lostStatsSql =
+                "SELECT " +
+                "  COUNT(*) AS total_lost, " +
+                "  SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open_lost, " +
+                "  SUM(CASE WHEN status = 'MATCHED' THEN 1 ELSE 0 END) AS matched_lost, " +
+                "  SUM(CASE WHEN status = 'RESOLVED' THEN 1 ELSE 0 END) AS resolved_lost " +
+                "FROM lost_items";
+
         int totalItems = 0, available = 0, pendingClaimItems = 0, returned = 0;
         int totalClaims = 0, pendingClaims = 0, approvedClaims = 0, rejectedClaims = 0;
+        int totalLost = 0, openLost = 0, matchedLost = 0, resolvedLost = 0;
         String topLocation = "N/A";
 
         try (Connection conn = ConnectionFactory.getConnection()) {
@@ -211,6 +220,19 @@ public class FoundItemDaoJdbcImpl implements FoundItemDao {
             }
 
             try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(lostStatsSql)) {
+                if (rs.next()) {
+                    totalLost = rs.getInt("total_lost");
+                    openLost = rs.getInt("open_lost");
+                    matchedLost = rs.getInt("matched_lost");
+                    resolvedLost = rs.getInt("resolved_lost");
+                }
+            } catch (SQLException e) {
+                // If lost_items table doesn't exist yet on an unmigrated DB, fail silently with 0s
+                logger.fine("Could not query lost_items statistics: " + e.getMessage());
+            }
+
+            try (Statement st = conn.createStatement();
                  ResultSet rs = st.executeQuery(topLocSql)) {
                 if (rs.next()) {
                     topLocation = rs.getString("location_found") + " (" + rs.getInt("cnt") + " items)";
@@ -218,7 +240,8 @@ public class FoundItemDaoJdbcImpl implements FoundItemDao {
             }
 
             return new DashboardStatistics(totalItems, available, pendingClaimItems, returned,
-                    totalClaims, pendingClaims, approvedClaims, rejectedClaims, topLocation);
+                    totalClaims, pendingClaims, approvedClaims, rejectedClaims,
+                    totalLost, openLost, matchedLost, resolvedLost, topLocation);
         } catch (SQLException e) {
             throw new DatabaseOperationException("Failed to calculate dashboard statistics: " + e.getMessage(), e);
         }

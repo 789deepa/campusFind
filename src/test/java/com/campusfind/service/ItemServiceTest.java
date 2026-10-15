@@ -5,6 +5,7 @@ import com.campusfind.exception.ItemNotFoundException;
 import com.campusfind.model.*;
 import com.campusfind.testutil.InMemoryClaimDao;
 import com.campusfind.testutil.InMemoryFoundItemDao;
+import com.campusfind.testutil.InMemoryLostItemDao;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,15 +21,17 @@ class ItemServiceTest {
 
     private InMemoryFoundItemDao itemDao;
     private InMemoryClaimDao claimDao;
+    private InMemoryLostItemDao lostItemDao;
     private ValidationService validationService;
     private ItemService itemService;
 
     @BeforeEach
     void setUp() {
         itemDao = new InMemoryFoundItemDao();
-        claimDao = new InMemoryClaimDao(itemDao);
+        lostItemDao = new InMemoryLostItemDao();
+        claimDao = new InMemoryClaimDao(itemDao, lostItemDao);
         validationService = new ValidationService();
-        itemService = new ItemService(itemDao, claimDao, validationService);
+        itemService = new ItemService(itemDao, claimDao, lostItemDao, validationService);
     }
 
     @Test
@@ -124,5 +127,33 @@ class ItemServiceTest {
         List<FoundItem> results = itemService.searchItems("Calculator");
         assertEquals(1, results.size());
         assertEquals("Casio Scientific Calculator", results.get(0).getItemName());
+    }
+
+    @Test
+    @DisplayName("markItemAsReturned transitions associated lost item report status to RESOLVED")
+    void testMarkReturnedResolvesAssociatedLostItem() {
+        // 1. Report lost item
+        LostItem lost = new LostItem("Wrist Watch", "Accessories", "Titan gold watch",
+                "Cafeteria", LocalDate.now(), "Nikhil", "nikhil@campus.edu", "Scratch on back");
+        lostItemDao.save(lost);
+
+        // 2. Report found item
+        FoundItem found = itemService.reportItem(new FoundItem("Wrist Watch", "Accessories", "Titan gold watch",
+                "Cafeteria", LocalDate.now(), "Staff", "Scratch on back"));
+
+        // 3. Approved claim linked to lost report
+        Claim claim = new Claim(found.getId(), lost.getId(), "Nikhil", "nikhil@campus.edu", "My watch", "Scratch on back");
+        claim.setStatus(ClaimStatus.APPROVED);
+        claim.setReviewedAt(LocalDateTime.now());
+        claimDao.save(claim);
+
+        // 4. Mark item returned
+        boolean returned = itemService.markItemAsReturned(found.getId());
+        assertTrue(returned);
+
+        // 5. Verify lost report is RESOLVED
+        LostItem updatedLost = lostItemDao.findById(lost.getId()).orElseThrow();
+        assertEquals(LostItemStatus.RESOLVED, updatedLost.getStatus(),
+                "Associated lost item must transition to RESOLVED when found item is returned.");
     }
 }

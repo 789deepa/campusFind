@@ -17,9 +17,19 @@ public class InMemoryClaimDao implements ClaimDao {
     private final Map<Integer, Claim> claims = new LinkedHashMap<>();
     private final AtomicInteger idGenerator = new AtomicInteger(1);
     private final InMemoryFoundItemDao itemDao;
+    private InMemoryLostItemDao lostItemDao;
 
     public InMemoryClaimDao(InMemoryFoundItemDao itemDao) {
         this.itemDao = itemDao;
+    }
+
+    public InMemoryClaimDao(InMemoryFoundItemDao itemDao, InMemoryLostItemDao lostItemDao) {
+        this.itemDao = itemDao;
+        this.lostItemDao = lostItemDao;
+    }
+
+    public void setLostItemDao(InMemoryLostItemDao lostItemDao) {
+        this.lostItemDao = lostItemDao;
     }
 
     @Override
@@ -87,7 +97,12 @@ public class InMemoryClaimDao implements ClaimDao {
         claim.setStatus(ClaimStatus.APPROVED);
         claim.setReviewedAt(LocalDateTime.now());
 
-        // 2. Reject competing pending claims for the same item
+        // 2. If associated with lost report, update lost item status to MATCHED
+        if (claim.getLostReportId() != null && lostItemDao != null) {
+            lostItemDao.updateStatus(claim.getLostReportId(), com.campusfind.model.LostItemStatus.MATCHED);
+        }
+
+        // 3. Reject competing pending claims for the same item
         for (Claim other : claims.values()) {
             if (Objects.equals(other.getItemId(), itemId) &&
                 !Objects.equals(other.getId(), claimId) &&
@@ -106,7 +121,7 @@ public class InMemoryClaimDao implements ClaimDao {
     }
 
     private Claim copy(Claim o) {
-        return new Claim(o.getId(), o.getItemId(), o.getClaimantName(), o.getClaimantContact(),
+        return new Claim(o.getId(), o.getItemId(), o.getLostReportId(), o.getClaimantName(), o.getClaimantContact(),
                 o.getClaimDescription(), o.getVerificationResponse(), o.getStatus(),
                 o.getSubmittedAt(), o.getReviewedAt());
     }

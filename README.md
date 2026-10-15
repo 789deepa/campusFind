@@ -2,30 +2,44 @@
 
 A robust, modular, and privacy-conscious console application built with **Core Java 17+**, **JDBC**, **MySQL**, and **JUnit 5**, designed to demonstrate clean layered architecture, OOP design principles, and transactional database patterns for fresher Java developer interviews.
 
+Supports **both Lost-Item and Found-Item reports**, intelligent matching heuristics, and privacy-preserving claim verification.
+
 ---
 
 ## 1. Problem Statement
 
-Belongings such as calculators, ID cards, wallets, and laptop chargers are frequently misplaced across campus. Existing lost-and-found systems present a major security flaw: **they display all identifying characteristics publicly**. This invites dishonest individuals to falsely claim high-value items simply by repeating details they saw online.
+Belongings such as calculators, ID cards, wallets, backpacks, and laptop chargers are frequently misplaced across campus. Existing lost-and-found systems present a major security flaw: **they display all identifying characteristics publicly**. This invites dishonest individuals to falsely claim high-value items simply by repeating details they saw online.
 
-**CampusFind** solves this using **Privacy-First Claim Verification**:
-- The finder records a **secret verification clue** (e.g. an engraved initial, hidden sticker, or serial number suffix) that is **never shown publicly** or written to logs.
-- When an owner files a claim, they submit their own private answer.
-- Campus staff review the claimant's answer alongside the secret clue in a dedicated comparison screen before authorizing approval via an **atomic ACID transaction**.
+**CampusFind** solves this using **Privacy-First Claim Verification & Integrated Dual-Tracking**:
+- **Found Items**: The finder records a **secret verification clue** (e.g. an engraved initial, hidden sticker, or serial number suffix) that is **never shown publicly** or written to logs.
+- **Lost Items**: Students register their lost belongings with confidential identifying details, location last seen, date lost, and contact info.
+- **Match Suggestions**: A heuristic matching engine calculates correlation scores between open lost reports and available found items without auto-resolving.
+- **Claim Linkage & Resolution**: When filing a claim, a student can associate their lost report ID. On claim approval, the lost report status transitions to `MATCHED` atomically. When the physical item is handed over and marked `RETURNED`, the lost report is marked `RESOLVED`.
 
 ---
 
 ## 2. Key Features
 
+### [Found Items]
 1. **Report a Found Item**: Captures item details and confidential verification clues with strict validation.
 2. **List Available Items**: Tabular listing of open items (`AVAILABLE` and `CLAIM_PENDING`), strictly omitting secret clues.
-3. **Search & Filter**: Keyword search across item names and descriptions, plus filtering by category and location.
-4. **Submit a Claim**: Validates claimant contact information and captures their private verification response. Prevents duplicate active claims.
-5. **Privacy-Verified Claim Review**: Staff view side-by-side comparison cards comparing the finder's secret clue with the claimant's answer.
-6. **Atomic Claim Approval**: Atomically sets claim to `APPROVED`, synchronizes item status, and auto-rejects competing pending claims in a single transaction with rollback protection.
-7. **Safe Return Handover**: Enforces a strict business invariant: an item can only be marked `RETURNED` if an approved claim exists.
-8. **Live Statistics Dashboard**: Aggregates total items, pending reviews, approval rates, and hotspot locations directly from database records.
-9. **Full Audit History**: View complete historical logs of all reported items and claims.
+3. **Search & Filter Found Items**: Keyword search across item names and descriptions, plus filtering by category and location.
+
+### [Lost Items]
+4. **Report a Lost Item**: Captures student lost reports with confidential identifying details, location last seen, date lost, and contact details. Defaults to status `OPEN`.
+5. **List Active Lost Reports**: Tabular listing of active student reports (`OPEN` and `MATCHED`), with confidential identifying details safely redacted.
+6. **Search & Filter Lost Items**: Separate keyword search and category/location filtering for lost reports.
+
+### [Matching & Claim Resolution]
+7. **Potential Match Suggestions**: Evaluates potential matches between lost and found items using multi-factor heuristics (category match, keyword overlap, location similarity, and chronological plausibility). Displays match score (%) and reason breakdown without auto-modifying records.
+8. **Submit a Claim (with Lost Report Linkage)**: Students can submit a claim for a found item, optionally linking their open lost report ID. Prevents duplicate active claims and invalid references.
+9. **Privacy-Verified Claim Review**: Staff view side-by-side comparison cards comparing the finder's secret clue with the claimant's answer without public exposure.
+10. **Atomic Claim Approval**: Atomically sets claim to `APPROVED`, synchronizes item status, auto-rejects competing pending claims, and sets linked lost reports to `MATCHED` in a single ACID transaction with rollback protection.
+11. **Safe Return Handover**: Marks item as `RETURNED` only after an approved claim, automatically completing the lifecycle by marking any linked lost report as `RESOLVED`.
+
+### [System & Audit]
+12. **Live Statistics Dashboard**: Aggregates found item metrics (`AVAILABLE`, `CLAIM_PENDING`, `RETURNED`), lost item metrics (`OPEN`, `MATCHED`, `RESOLVED`), and claim resolution rates.
+13. **Full Audit History**: View complete historical logs of all reported found items, lost items, and claims.
 
 ---
 
@@ -46,15 +60,15 @@ CampusFind strictly adheres to an N-Tier **Layered Architecture**:
 
 ```
 UI Layer (ConsoleMenu, ConsolePrinter)
-       │ (User input & presentation)
+       │ (User input, menus & formatted tables)
        ▼
-Service Layer (ItemService, ClaimService, ValidationService)
-       │ (Business rules, state transitions, privacy filters)
+Service Layer (ItemService, LostItemService, ClaimService, ValidationService)
+       │ (Business rules, match heuristics, state transitions, privacy filters)
        ▼
-DAO Layer (FoundItemDao, ClaimDao)
-       │ (PreparedStatements, Transactions, Entity Mapping)
+DAO Layer (FoundItemDao, LostItemDao, ClaimDao)
+       │ (PreparedStatements, Transactions, Entity Mapping, Resource Management)
        ▼
-Database Layer (MySQL 8.0: found_items, claims)
+Database Layer (MySQL 8.0: found_items, lost_items, claims)
 ```
 
 See [`docs/ARCHITECTURE.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/ARCHITECTURE.md) for full architectural sequence diagrams and responsibilities.
@@ -71,14 +85,20 @@ See [`docs/ARCHITECTURE.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/do
 
 ## 6. MySQL Setup & Configuration
 
-### Step 1: Initialize Database & Sample Data
-Open your terminal or MySQL Workbench and run:
+### For Existing Databases (Non-Destructive Migration)
+If you already ran version 1 of CampusFind, apply the migration script to add lost items and claim linkage **without losing existing data**:
+```bash
+mysql -u root -p campusfind < src/main/resources/db/migration_v2_lost_items.sql
+```
+
+### For Fresh Installations
+Open your terminal or MySQL client and run:
 ```bash
 mysql -u root -p < src/main/resources/db/schema.sql
 mysql -u root -p < src/main/resources/db/sample-data.sql
 ```
 
-### Step 2: Configure Credentials
+### Database Credentials Configuration
 Copy the example properties file:
 ```bash
 cp src/main/resources/db.properties.example db.properties
@@ -89,7 +109,7 @@ db.url=jdbc:mysql://localhost:3306/campusfind?useSSL=false&allowPublicKeyRetriev
 db.user=root
 db.password=your_mysql_password
 ```
-*Alternatively, you can export environment variables without touching any files:*
+*Alternatively, you can export environment variables:*
 ```powershell
 $env:DB_URL="jdbc:mysql://localhost:3306/campusfind?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
 $env:DB_USER="root"
@@ -101,7 +121,7 @@ $env:DB_PASSWORD="your_password"
 ## 7. How to Build, Test, and Run
 
 ### Run Unit Tests
-All 40 business logic and validation tests execute independently using in-memory test doubles without requiring MySQL:
+All 73 business logic, heuristic matching, validation, and transaction tests execute independently using in-memory test doubles without requiring MySQL:
 ```bash
 mvn clean test
 ```
@@ -124,7 +144,7 @@ java -jar target/campusfind-1.0.0.jar
 
 ---
 
-## 8. Example Console Session
+## 8. Interactive Console Menu
 
 ```text
 ==========================================================================================
@@ -138,32 +158,25 @@ java -jar target/campusfind-1.0.0.jar
 ==========================================================================================
 
 -------------------------------- MENU OPTIONS --------------------------------
- 1. Report a Found Item
- 2. List Available / Open Items
- 3. Search Items by Name or Keyword
- 4. Filter Items by Category
- 5. Filter Items by Location
- 6. Submit a Claim for an Item
- 7. Review Pending Claims (Privacy-Verified Review)
- 8. Approve or Reject a Claim
- 9. Mark Item as Returned (Handover to Owner)
- 10. Display Statistics Dashboard
- 11. View All History & Audit Logs
- 12. Exit
+ [FOUND ITEMS]
+  1. Report a Found Item
+  2. List Available / Open Found Items
+  3. Search & Filter Found Items (Keyword / Category / Location)
+ [LOST ITEMS]
+  4. Report a Lost Item (Student Report)
+  5. List Active Lost-Item Reports
+  6. Search & Filter Lost Items (Keyword / Category / Location)
+ [MATCHING & CLAIMS]
+  7. Find Potential Matches (Suggest Matches between Lost & Found)
+  8. Submit a Claim for an Item (with optional Lost Report ID)
+  9. Review Pending Claims (Privacy-Verified Review)
+ 10. Approve or Reject a Claim
+ 11. Mark Item as Returned (Handover to Owner & Resolve Lost Report)
+ [SYSTEM & AUDIT]
+ 12. Display Live Statistics Dashboard
+ 13. View All History & Audit Logs (Found, Lost & Claims)
+ 14. Exit
 ------------------------------------------------------------------------------
-Please select an option (1-12): 2
-
-=== Available & Claim-Pending Campus Items (5 items found) ===
-+------+------------------------------+---------------+------------------------+------------+---------------+
-| ID   | Item Name                    | Category      | Location               | Date Found | Status        |
-+------+------------------------------+---------------+------------------------+------------+---------------+
-| 4    | Brown Leather Bifold Wallet  | Accessories   | Sports Complex - Ba... | 2026-10-13 | Available     |
-| 3    | Blue Hydro Flask Water Bo... | Others        | Student Cafeteria      | 2026-10-12 | Available     |
-| 2    | Scientific Calculator Cas... | Electronics   | Academic Block A - ... | 2026-10-11 | Claim Pending |
-| 1    | Dell Precision Laptop Cha... | Electronics   | Central Library - 2... | 2026-10-10 | Available     |
-| 6    | Titan Fastrack Silver Wri... | Accessories   | Lecture Hall Comple... | 2026-10-09 | Available     |
-+------+------------------------------+---------------+------------------------+------------+---------------+
-NOTE: Private verification clues are confidential and hidden from public view.
 ```
 
 ---
@@ -172,17 +185,10 @@ NOTE: Private verification clues are confidential and hidden from public view.
 
 The [`docs/`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/) directory includes complete interview preparation guides:
 
-- [`docs/INTERVIEW-PREP.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/INTERVIEW-PREP.md): 30s/90s pitch, 32 comprehensive Q&As covering Core Java, OOP, JDBC, Transactions, and potential follow-up questions.
+- [`docs/INTERVIEW-PREP.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/INTERVIEW-PREP.md): 30s/90s elevator pitch, comprehensive Q&As covering Core Java, OOP, JDBC, Transactions, Lost-Item Integration, Heuristics, and follow-ups.
 - [`docs/JAVA-CONCEPTS.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/JAVA-CONCEPTS.md): How encapsulation, abstraction, polymorphism, enums, streams, and exceptions are used.
-- [`docs/DATABASE.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/DATABASE.md): ER diagram, indexing rationale, PreparedStatement security, and transaction design.
+- [`docs/DATABASE.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/DATABASE.md): ER diagram with `lost_items`, indexing rationale, PreparedStatement security, non-destructive migration, and transaction design.
+- [`docs/ARCHITECTURE.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/ARCHITECTURE.md): Architecture layers, DTOs, heuristic matching design, and sequence diagrams.
 - [`docs/CODE-WALKTHROUGH.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/CODE-WALKTHROUGH.md): Guided reading order and trace of every feature.
-- [`docs/sql-practice.sql`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/sql-practice.sql): 15 interview SQL practice queries with explanations.
-- [`docs/BUILD-LOG.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/BUILD-LOG.md): Exact compilation and test logs.
-
----
-
-## 10. Known Limitations & Future Improvements
-
-- **Connection Pool**: Currently creates direct connections via `DriverManager`. In a production web deployment, a pool like HikariCP would reduce connection latency.
-- **Console Interface**: Terminal-based interface. In the future, a Spring Boot REST API with a React or Angular frontend could be added.
-- **Optimistic Locking**: Concurrent updates are protected via database transactions; high-concurrency environments could add version columns (`version INT`).
+- [`docs/sql-practice.sql`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/sql-practice.sql): Interview SQL practice queries including joins between lost items, found items, and claims.
+- [`docs/BUILD-LOG.md`](file:///d:/desk/TalkAbtTech/PROJECT-S/campusFind/docs/BUILD-LOG.md): Exact compilation and test logs for all 73 tests.
