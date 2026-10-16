@@ -1,4 +1,4 @@
-# CampusFind — Privacy-First Campus Lost & Found Management System
+# CampusFind - Privacy-First Campus Lost & Found Management System
 
 A robust, modular, and privacy-conscious console application built with **Core Java 17+**, **JDBC**, **MySQL**, and **JUnit 5**, designed to demonstrate clean layered architecture, OOP design principles, and transactional database patterns for fresher Java developer interviews.
 
